@@ -1,0 +1,8 @@
+# Note data files (contain encrypted content and passcode hashes)
+private-notes/note_*.json
+
+# Server encryption key
+private-notes/.secretkey
+
+# PHP sessions
+sess_*
