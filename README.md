@@ -12,12 +12,14 @@ Sometimes you need to share a password, API key, or sensitive message with someo
 
 ### Server-Side Encryption
 
-The server encrypts note content with **AES-256-GCM** before writing to disk. The encryption key is sourced from (in priority order):
+The server encrypts note content with **AES-256-GCM** before writing to disk. Encryption keys are managed via an automatically rotating keyring (`private-notes/.keyring`):
 
 1. `PRIVATE_NOTES_KEY` environment variable (recommended for production)
-2. `private-notes/.secretkey` file (auto-generated if needed)
+2. Auto-generated keys that **rotate every 24 hours**
 
-The server holds the key, so it can theoretically read notes. Use E2E mode if that's a concern.
+Each note stores a `key_id` referencing the specific key used to encrypt it. Old keys are retained in the keyring until they're older than the note TTL (72h) plus a safety buffer, then pruned by the cleanup script. This limits the blast radius of a key compromise to notes created during that key's active window.
+
+The server holds the keys, so it can theoretically read notes. Use E2E mode if that's a concern.
 
 ### End-to-End Encryption (E2E)
 
@@ -31,7 +33,7 @@ The server stores ciphertext it cannot decrypt. Even a compromised server cannot
 
 - **At rest:** Notes are AES-256-GCM encrypted. Raw content never touches disk.
 - **In transit:** Relies on HTTPS (deployment responsibility). E2E mode adds a layer where even the server is untrusted.
-- **Brute-force:** Passcode verification is rate-limited (5 attempts, then 15-minute lockout). Passcodes are hashed with Argon2ID.
+- **Brute-force:** Passcode verification is rate-limited (10 attempts, then 1-hour lockout). Passcodes are hashed with Argon2ID.
 - **Timing attacks:** Missing notes still run a dummy `password_verify()` to prevent note ID enumeration via response timing.
 - **Concurrency:** All view/consume operations use `flock(LOCK_EX)` for atomic read-verify-decrement-write, preventing race conditions on simultaneous requests.
 - **CSRF:** All form submissions are protected with session-based CSRF tokens.
@@ -46,9 +48,12 @@ The server stores ciphertext it cannot decrypt. Even a compromised server cannot
 | Rate limiting | Per-note failed attempt counter with lockout, stored under file lock |
 | CSRF protection | Session tokens with `SameSite=Strict` cookies |
 | HTTP headers | CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy |
-| File permissions | `0700` directory, `0600` secret key file |
+| Key rotation | 24-hour automatic rotation via keyring; old keys pruned after TTL expiry |
+| File permissions | `0700` directory, `0600` keyring file |
 | Timing side-channels | Constant-time passcode verification for missing notes |
-| Key isolation | `.secretkey` blocked via `.htaccess`, never logged or exposed |
+| Key isolation | `.keyring` blocked via `.htaccess`, never logged or exposed |
+| Input validation | Note IDs validated as 32-char hex; passcode capped at 128 bytes; content capped at 100KB |
+| CSP | Nonce-based Content-Security-Policy (no `unsafe-inline`) |
 
 ### Post-Quantum Considerations
 
@@ -77,6 +82,7 @@ E2E:     Browser encrypts locally ──POST──> Server stores ciphertext
 ```json
 {
   "type": "server|e2e",
+  "key_id": "<hex, server-side only>",
   "ciphertext": "<base64>",
   "iv": "<base64>",
   "tag": "<base64>",
@@ -128,9 +134,9 @@ Expired and consumed notes are deleted automatically on view. For additional cle
 | File | Purpose |
 |------|---------|
 | `index.php` | Entire application -- routing, encryption, HTML output |
-| `cleanup_private_notes.php` | CLI utility to purge expired/consumed notes |
-| `private-notes/.htaccess` | Blocks web access to `.secretkey` |
+| `cleanup_private_notes.php` | CLI utility to purge expired/consumed notes and stale keys |
+| `private-notes/.htaccess` | Blocks web access to `.keyring` and `.secretkey` |
 
 ## License
 
-MIT
+[GPL-3.0](LICENSE)
