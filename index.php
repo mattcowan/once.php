@@ -778,7 +778,7 @@ echo '<li><strong>Share the passcode separately</strong> &mdash; send the 6-char
 echo '<li><strong>One view, then gone</strong> &mdash; the note can only be viewed once. After that, it is permanently deleted from the server. Unread notes expire after 72 hours.</li>';
 echo '</ul>';
 
-echo '<h3>About End-to-End Encryption (E2E)</h3>';
+echo '<h3 style="margin-top:1.5rem">About End-to-End Encryption (E2E)</h3>';
 echo '<p>When you check the E2E option, your note is encrypted directly in your browser before it ever leaves your device. The encryption key is embedded in the URL fragment (the part after the <code>#</code>), which your browser never sends to the server. This means:</p>';
 echo '<ul>';
 echo '<li>The server only stores ciphertext &mdash; it cannot read your note.</li>';
