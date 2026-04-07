@@ -4,5 +4,8 @@ private-notes/note_*.json
 # Server encryption key
 private-notes/.secretkey
 
+# Environment config
+.env
+
 # PHP sessions
 sess_*
