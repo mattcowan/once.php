@@ -139,6 +139,176 @@ function html($s): string {
     return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
 }
 
+function pageStart(string $subtitle = ''): void {
+    $title = 'Once' . ($subtitle ? ' — ' . $subtitle : '');
+    echo '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">';
+    echo '<title>' . html($title) . '</title>';
+    echo '<style>
+/* ── Light theme (default) ── */
+:root{
+  --bg:#f0f0f3;--bg-card:#fff;
+  --text:#1a1a1d;--text-muted:#444449;--text-faint:#5c5c63;
+  --border:#b8b8be;--border-light:#d0d0d5;
+  --link:#0050b5;--link-hover:#003a85;
+  --btn-bg:#0050b5;--btn-hover:#003a85;--btn-text:#fff;
+  --btn2-bg:#d5d5da;--btn2-hover:#b8b8be;--btn2-text:#1a1a1d;
+  --copy-bg:#1a7f37;--copy-hover:#156d2e;--copy-text:#fff;
+  --share-bg:#e6f0ff;--share-border:#8cb8f0;
+  --pass-bg:#e8e8ec;--pass-border:#b8b8be;
+  --error:#c62828;--success:#1a7f37;
+  --focus-ring:rgba(0,80,181,.45);
+  --note-bg:#fff;--note-border:#b8b8be;
+  --code-bg:#e2e2e7;
+  --accent:#0050b5;
+  --toggle-bg:#d5d5da;--toggle-fg:#444449;
+}
+
+/* ── Dark theme — deep navy ── */
+[data-theme="dark"]{
+  --bg:#0d1b2a;--bg-card:#152238;
+  --text:#e2e4e8;--text-muted:#a8b0bb;--text-faint:#8891a0;
+  --border:#2e3f55;--border-light:#253347;
+  --link:#6db3f2;--link-hover:#9dcbf7;
+  --btn-bg:#1565c0;--btn-hover:#1976d2;--btn-text:#fff;
+  --btn2-bg:#253347;--btn2-hover:#2e3f55;--btn2-text:#e2e4e8;
+  --copy-bg:#22863a;--copy-hover:#2ea44f;--copy-text:#fff;
+  --share-bg:#152d44;--share-border:#2e5580;
+  --pass-bg:#1a2940;--pass-border:#2e3f55;
+  --error:#f47068;--success:#56d364;
+  --focus-ring:rgba(109,179,242,.5);
+  --note-bg:#1a2940;--note-border:#2e3f55;
+  --code-bg:#1a2940;
+  --accent:#6db3f2;
+  --toggle-bg:#253347;--toggle-fg:#a8b0bb;
+}
+
+/* Auto-detect OS dark preference when no explicit toggle choice */
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d1b2a;--bg-card:#152238;
+    --text:#e2e4e8;--text-muted:#a8b0bb;--text-faint:#8891a0;
+    --border:#2e3f55;--border-light:#253347;
+    --link:#6db3f2;--link-hover:#9dcbf7;
+    --btn-bg:#1565c0;--btn-hover:#1976d2;--btn-text:#fff;
+    --btn2-bg:#253347;--btn2-hover:#2e3f55;--btn2-text:#e2e4e8;
+    --copy-bg:#22863a;--copy-hover:#2ea44f;--copy-text:#fff;
+    --share-bg:#152d44;--share-border:#2e5580;
+    --pass-bg:#1a2940;--pass-border:#2e3f55;
+    --error:#f47068;--success:#56d364;
+    --focus-ring:rgba(109,179,242,.5);
+    --note-bg:#1a2940;--note-border:#2e3f55;
+    --code-bg:#1a2940;
+    --accent:#6db3f2;
+    --toggle-bg:#253347;--toggle-fg:#a8b0bb;
+  }
+}
+
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+
+/* Skip-to-content link (visible only on keyboard focus) */
+.skip-link{position:absolute;top:-100%;left:1rem;background:var(--btn-bg);color:var(--btn-text);padding:.5rem 1rem;border-radius:0 0 8px 8px;z-index:100;font-weight:600;text-decoration:none}
+.skip-link:focus{top:0}
+
+.wrap{max-width:640px;margin:0 auto;padding:2rem 1.5rem;position:relative}
+.header{text-align:center;margin-bottom:2rem;padding-bottom:1.5rem;border-bottom:1px solid var(--border)}
+.header h1{font-size:1.75rem;font-weight:700;margin:0 0 .25rem;letter-spacing:-.02em;color:var(--text)}
+.header .tagline{font-size:.95rem;color:var(--text-muted);margin:0}
+
+/* Theme toggle */
+.theme-toggle{position:absolute;top:1rem;right:1rem;background:var(--toggle-bg);border:1px solid var(--border);color:var(--toggle-fg);border-radius:8px;padding:.4rem .75rem;cursor:pointer;font-size:.8rem;font-weight:600;line-height:1.4;transition:background .15s,color .15s}
+.theme-toggle:hover{background:var(--border);color:var(--text)}
+.theme-toggle:focus-visible{outline:3px solid var(--focus-ring);outline-offset:2px}
+
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+h2{font-size:1.2rem;margin:0 0 1rem;font-weight:600;color:var(--text)}
+label{font-size:.9rem;font-weight:500;color:var(--text)}
+textarea{width:100%;padding:.75rem;border:1px solid var(--border);border-radius:8px;font-size:.95rem;font-family:inherit;resize:vertical;margin-top:.35rem;background:var(--bg-card);color:var(--text)}
+textarea:focus-visible,input[type="text"]:focus-visible,input[type="password"]:focus-visible{outline:3px solid var(--focus-ring);outline-offset:1px;border-color:var(--accent)}
+input[type="text"],input[type="password"]{padding:.5rem .75rem;border:1px solid var(--border);border-radius:8px;font-size:.95rem;font-family:inherit;background:var(--bg-card);color:var(--text)}
+button,.btn{display:inline-block;padding:.6rem 1.25rem;background:var(--btn-bg);color:var(--btn-text);border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;text-decoration:none;transition:background .15s}
+button:hover,.btn:hover{background:var(--btn-hover)}
+button:focus-visible,.btn:focus-visible{outline:3px solid var(--focus-ring);outline-offset:2px}
+.btn-secondary{background:var(--btn2-bg);color:var(--btn2-text)}
+.btn-secondary:hover{background:var(--btn2-hover)}
+.btn-copy{background:var(--copy-bg);color:var(--copy-text);margin-left:.5rem}
+.btn-copy:hover{background:var(--copy-hover)}
+.checkbox-label{display:flex;align-items:center;gap:.5rem;margin:.75rem 0;font-size:.9rem;cursor:pointer;color:var(--text)}
+.checkbox-label input[type="checkbox"]{width:1.1rem;height:1.1rem;accent-color:var(--accent)}
+.share-box{background:var(--share-bg);border:1px solid var(--share-border);border-radius:8px;padding:1rem;margin:.75rem 0;word-break:break-all;font-size:.9rem}
+.share-box a{color:var(--link);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}
+.share-box a:hover{color:var(--link-hover)}
+.passcode-display{display:inline-block;background:var(--pass-bg);border:1px solid var(--pass-border);border-radius:6px;padding:.3rem .75rem;font-family:"SF Mono",SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;font-size:1.1rem;letter-spacing:.1em;font-weight:600;color:var(--text)}
+.error{color:var(--error);font-weight:600}
+.consumed{font-style:italic;color:var(--text-muted);margin-top:1rem}
+.note-content{background:var(--note-bg);border:1px solid var(--note-border);border-radius:8px;padding:1rem;white-space:pre-wrap;font-size:.95rem;line-height:1.7;color:var(--text)}
+.info-section{margin-top:2rem;padding-top:1.5rem;border-top:1px solid var(--border)}
+.info-section h3{font-size:1rem;font-weight:600;margin:0 0 .5rem;color:var(--text)}
+.info-section p,.info-section ul{font-size:.875rem;color:var(--text-muted);margin:.4rem 0;line-height:1.6}
+.info-section ul{padding-left:1.25rem}
+.info-section li{margin-bottom:.3rem}
+.info-section code{background:var(--code-bg);border:1px solid var(--border-light);border-radius:4px;padding:.1rem .35rem;font-size:.85rem;color:var(--text)}
+.copy-feedback{display:none;font-size:.85rem;color:var(--success);margin-left:.5rem;font-weight:600}
+.form-row{margin-bottom:1rem}
+.actions{margin-top:1.25rem}
+a{color:var(--link)}
+a:hover{color:var(--link-hover)}
+    </style>';
+    echo '</head><body>';
+    echo '<a href="#main" class="skip-link">Skip to main content</a>';
+    echo '<div class="wrap">';
+    echo '<button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle dark mode"></button>';
+    echo '<div id="main" role="main">';
+    $rootUrl = html($_SERVER['SCRIPT_NAME'] ?? '/');
+    echo '<div class="header"><h1><a href="' . $rootUrl . '" style="color:inherit;text-decoration:none">Once</a></h1><p class="tagline">Here for a moment, then gone for good.</p></div>';
+}
+
+function pageEnd(): void {
+    echo '</div>'; // close #main
+    echo '<script>
+(function(){
+  var html=document.documentElement,btn=document.getElementById("themeToggle");
+  if(!btn) return;
+  function getEffective(){
+    var s=localStorage.getItem("once-theme");
+    if(s==="dark"||s==="light") return s;
+    return window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";
+  }
+  function apply(t){
+    html.setAttribute("data-theme",t);
+    btn.textContent=t==="dark"?"Light mode":"Dark mode";
+    btn.setAttribute("aria-label",t==="dark"?"Switch to light mode":"Switch to dark mode");
+  }
+  apply(getEffective());
+  btn.addEventListener("click",function(){
+    var next=getEffective()==="dark"?"light":"dark";
+    localStorage.setItem("once-theme",next);
+    apply(next);
+  });
+  window.matchMedia("(prefers-color-scheme:dark)").addEventListener("change",function(){
+    if(!localStorage.getItem("once-theme")) apply(getEffective());
+  });
+})();
+</script>';
+    echo '</div></body></html>'; // close .wrap
+}
+
+function copyScript(): string {
+    return '<script>
+function copyToClipboard(text, feedbackId) {
+  navigator.clipboard.writeText(text).then(function(){
+    var el = document.getElementById(feedbackId);
+    if(el){el.style.display="inline";setTimeout(function(){el.style.display="none"},2000)}
+  }).catch(function(){
+    var t=document.createElement("textarea");t.value=text;t.style.position="fixed";t.style.opacity="0";
+    document.body.appendChild(t);t.select();document.execCommand("copy");document.body.removeChild(t);
+    var el=document.getElementById(feedbackId);
+    if(el){el.style.display="inline";setTimeout(function(){el.style.display="none"},2000)}
+  });
+}
+</script>';
+}
+
 // Pre-computed dummy hash for timing-safe responses when note is not found
 // This ensures password_verify() runs even for missing notes, preventing timing side-channels.
 $GLOBALS['_dummy_passcode_hash'] = '$argon2id$v=19$m=65536,t=4,p=1$dW5rbm93bg$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -180,12 +350,17 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $noteId = isset($_GET['note']) ? (string)$_GET['note'] : '';
 
 securityHeaders();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start(['cookie_samesite' => 'Strict', 'cookie_httponly' => true]);
+}
 ensureNotesDir($directory);
 
 // Handle note creation
 if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create') {
     if (!verifyCsrf()) {
-        echo '<p>Invalid request. Please reload the page and try again.</p>';
+        pageStart('Error');
+        echo '<div class="card"><p>Invalid request. Please reload the page and try again.</p></div>';
+        pageEnd();
         exit;
     }
     $content = isset($_POST['content']) ? (string)$_POST['content'] : '';
@@ -193,18 +368,24 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
     $isE2E = isset($_POST['e2e']) && $_POST['e2e'] === '1';
 
     if (!$isE2E && trim($content) === '') {
-        echo '<p>Please provide some content for the note.</p>';
+        pageStart('Error');
+        echo '<div class="card"><p>Please provide some content for the note.</p></div>';
+        pageEnd();
     } else {
         if ($passcode === '') {
             $passcode = generateRandomPasscode(6);
         }
         if (strlen($passcode) !== 6 || !ctype_alnum($passcode)) {
-            echo '<p>Passcode must be exactly 6 alphanumeric characters.</p>';
+            pageStart('Error');
+            echo '<div class="card"><p>Passcode must be exactly 6 alphanumeric characters.</p></div>';
+            pageEnd();
         } else {
             // Check note count limit
             $existingNotes = glob($directory . DIRECTORY_SEPARATOR . 'note_*.json') ?: [];
             if (count($existingNotes) >= $maxNotes) {
-                echo '<p>The service is at capacity. Please try again later.</p>';
+                pageStart('Error');
+                echo '<div class="card"><p>The service is at capacity. Please try again later.</p></div>';
+                pageEnd();
                 exit;
             }
             // Create note id and persist JSON
@@ -218,7 +399,9 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
                 $iv = isset($_POST['iv']) ? (string)$_POST['iv'] : '';
                 $tag = isset($_POST['tag']) ? (string)$_POST['tag'] : '';
                 if ($ct === '' || $iv === '' || $tag === '') {
-                    echo '<p>Missing encrypted payload from the browser. Please try again.</p>';
+                    pageStart('Error');
+                    echo '<div class="card"><p>Missing encrypted payload from the browser. Please try again.</p></div>';
+                    pageEnd();
                     exit;
                 }
                 $note = [
@@ -237,7 +420,9 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
                     $bundle = encryptContent($content, $key);
                 } catch (Throwable $e) {
                     error_log('send-private-note: encryption failed: ' . $e->getMessage());
-                    echo '<p>Encryption is not available. Please try again later.</p>';
+                    pageStart('Error');
+                    echo '<div class="card"><p>Encryption is not available. Please try again later.</p></div>';
+                    pageEnd();
                     exit;
                 }
 
@@ -254,21 +439,37 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
             }
 
             if (!saveNote($path, $note)) {
-                echo '<p>Failed to create the note. Please try again.</p>';
+                pageStart('Error');
+                echo '<div class="card"><p>Failed to create the note. Please try again.</p></div>';
+                pageEnd();
             } else {
                 error_log(sprintf('send-private-note: note created id=%s type=%s ip=%s', $id, $note['type'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-                $link = basename(__FILE__) . '?note=' . urlencode($id);
-                echo '<h3>Note Created</h3>';
+                $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+                $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                $baseUrl = $scheme . '://' . $host . $_SERVER['SCRIPT_NAME'];
+                $fullLink = $baseUrl . '?note=' . urlencode($id);
+                pageStart('Note Created');
+                echo copyScript();
+                echo '<div class="card">';
+                echo '<h2>Note Created</h2>';
                 if ($isE2E) {
-                    echo '<p>Share this link (contains the decryption key in the URL fragment; the server never sees it):</p>';
-                    echo '<div id="shareLink">Generating link…</div>';
-                    echo '<script>(function(){var base=' . json_encode($link) . ';var h=window.location.hash||"";var key=h.replace(/^#/,"");var full=base+(key?("#"+key):"");var a=document.createElement("a");a.href=full;a.textContent=full;a.rel="noopener";a.target="_blank";var c=document.getElementById("shareLink");c.textContent="";c.appendChild(a);})();</script>';
+                    echo '<p>Share this link. The decryption key is embedded in the URL fragment &mdash; the server never sees it.</p>';
+                    echo '<div class="share-box" id="shareLink">Generating link&hellip;</div>';
+                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" id="copyLinkBtn" style="display:none" onclick="copyToClipboard(document.getElementById(\'shareLinkText\').textContent,\'copyFeedback\')">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
+                    echo '<script>(function(){var base=' . json_encode($fullLink) . ';var h=window.location.hash||"";var key=h.replace(/^#/,"");var full=base+(key?("#"+key):"");var a=document.createElement("a");a.href=full;a.textContent=full;a.rel="noopener";a.target="_blank";a.id="shareLinkText";var c=document.getElementById("shareLink");c.textContent="";c.appendChild(a);document.getElementById("copyLinkBtn").style.display="inline-block";})();</script>';
                 } else {
-                    echo '<p>Share this link (no passcode in URL):<br>';
-                    echo '<a href="' . html($link) . '">' . html($link) . '</a></p>';
+                    echo '<p>Share this link:</p>';
+                    echo '<div class="share-box"><a href="' . html($fullLink) . '" id="shareLinkText">' . html($fullLink) . '</a></div>';
+                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" onclick="copyToClipboard(document.getElementById(\'shareLinkText\').textContent,\'copyFeedback\')">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
                 }
-                echo '<p>Passcode (share via a separate channel):<br><strong>' . html($passcode) . '</strong></p>';
-                echo '<p>This note can be viewed once. After a successful view, it will self-destruct. It expires in 72 hours if unused.</p>';
+                echo '<div class="form-row" style="margin-top:1rem"><label>Passcode (share separately):</label><br>';
+                echo '<span class="passcode-display">' . html($passcode) . '</span>';
+                echo '<button class="btn btn-copy" onclick="copyToClipboard(\'' . html($passcode) . '\',\'copyPassFeedback\')" style="margin-left:.5rem">Copy</button>';
+                echo '<span class="copy-feedback" id="copyPassFeedback" role="status" aria-live="polite">Copied!</span></div>';
+                echo '<p style="font-size:.85rem;color:var(--text-muted);margin-top:1rem">This note can be viewed once. After viewing, it self-destructs. Expires in 72 hours if unused.</p>';
+                echo '</div>';
+                echo '<p style="text-align:center;margin-top:1rem"><a href="' . html(basename(__FILE__)) . '" class="btn btn-secondary">Create Another Note</a></p>';
+                pageEnd();
                 exit;
             }
         }
@@ -331,7 +532,9 @@ if ($noteId !== '') {
     // If POST view attempt
     if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'view') {
         if (!verifyCsrf()) {
-            echo '<p>Invalid request. Please reload the page and try again.</p>';
+            pageStart('Error');
+            echo '<div class="card"><p>Invalid request. Please reload the page and try again.</p></div>';
+            pageEnd();
             exit;
         }
         $inputPass = isset($_POST['passcode']) ? (string)$_POST['passcode'] : '';
@@ -339,18 +542,24 @@ if ($noteId !== '') {
         // Atomic verify + decrement under lock
         if (!is_file($path)) {
             dummyPasswordVerify($inputPass);
-            echo '<p>This note does not exist or has expired.</p>';
+            pageStart('Not Found');
+            echo '<div class="card"><p>This note does not exist or has expired.</p></div>';
+            pageEnd();
             exit;
         }
         $fp = @fopen($path, 'r+');
         if ($fp === false) {
             dummyPasswordVerify($inputPass);
-            echo '<p>This note does not exist or has expired.</p>';
+            pageStart('Not Found');
+            echo '<div class="card"><p>This note does not exist or has expired.</p></div>';
+            pageEnd();
             exit;
         }
         if (!flock($fp, LOCK_EX)) {
             fclose($fp);
-            echo '<p>Could not lock the note. Please try again.</p>';
+            pageStart('Error');
+            echo '<div class="card"><p>Could not lock the note. Please try again.</p></div>';
+            pageEnd();
             exit;
         }
         rewind($fp);
@@ -361,27 +570,35 @@ if ($noteId !== '') {
             flock($fp, LOCK_UN);
             fclose($fp);
             deleteNoteFile($path);
-            echo '<p>This note does not exist or has expired.</p>';
+            pageStart('Not Found');
+            echo '<div class="card"><p>This note does not exist or has expired.</p></div>';
+            pageEnd();
             exit;
         }
         if (isset($data['expires_at']) && $now > (int)$data['expires_at']) {
             flock($fp, LOCK_UN);
             fclose($fp);
             deleteNoteFile($path);
-            echo '<p>This note has expired and is no longer available.</p>';
+            pageStart('Expired');
+            echo '<div class="card"><p>This note has expired and is no longer available.</p></div>';
+            pageEnd();
             exit;
         }
         if (($data['type'] ?? '') !== 'server') {
             flock($fp, LOCK_UN);
             fclose($fp);
-            echo '<p>This note uses end-to-end encryption. Please refresh and use the in-browser viewer.</p>';
+            pageStart('Wrong Type');
+            echo '<div class="card"><p>This note uses end-to-end encryption. Please refresh and use the in-browser viewer.</p></div>';
+            pageEnd();
             exit;
         }
         if ((int)$data['remaining_views'] <= 0) {
             flock($fp, LOCK_UN);
             fclose($fp);
             deleteNoteFile($path);
-            echo '<p>This note has already been viewed and is no longer available.</p>';
+            pageStart('Gone');
+            echo '<div class="card"><p>This note has already been viewed and is no longer available.</p></div>';
+            pageEnd();
             exit;
         }
         // Rate limiting: check failed attempts
@@ -390,8 +607,10 @@ if ($noteId !== '') {
         if ($failedAttempts >= $maxPasscodeAttempts && $now < $lockedUntil) {
             flock($fp, LOCK_UN);
             fclose($fp);
-            echo '<h3>Note Locked</h3>';
-            echo '<p style="color:#b00;">Too many failed attempts. Please try again later.</p>';
+            pageStart('Locked');
+            echo '<div class="card"><h2>Note Locked</h2>';
+            echo '<p class="error" role="alert">Too many failed attempts. Please try again later.</p></div>';
+            pageEnd();
             exit;
         }
         if (!isset($data['passcode_hash']) || !password_verify($inputPass, $data['passcode_hash'])) {
@@ -405,14 +624,17 @@ if ($noteId !== '') {
             fclose($fp);
             error_log(sprintf('send-private-note: bad passcode (server) note=%s attempt=%d ip=%s', $noteId, $data['failed_attempts'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
             // Re-show prompt with error
-            echo '<h3>Enter Passcode</h3>';
-            echo '<p style="color:#b00;">Invalid passcode. Please try again.</p>';
+            pageStart('Enter Passcode');
+            echo '<div class="card">';
+            echo '<h2>Enter Passcode</h2>';
+            echo '<p class="error" role="alert">Invalid passcode. Please try again.</p>';
             echo '<form method="post">';
             echo csrfField();
             echo '<input type="hidden" name="action" value="view">';
-            echo '<input type="password" name="passcode" placeholder="6-character passcode" required maxlength="128"> ';
-            echo '<button type="submit">View Note</button>';
-            echo '</form>';
+            echo '<div class="form-row"><label for="passcode">Passcode:</label><br><input type="password" id="passcode" name="passcode" placeholder="6-character passcode" required maxlength="128"></div>';
+            echo '<div class="actions"><button type="submit">View Note</button></div>';
+            echo '</form></div>';
+            pageEnd();
             exit;
         }
 
@@ -427,7 +649,9 @@ if ($noteId !== '') {
             flock($fp, LOCK_UN);
             fclose($fp);
             deleteNoteFile($path);
-            echo '<p>Unable to decrypt this note or it has expired.</p>';
+            pageStart('Error');
+            echo '<div class="card"><p>Unable to decrypt this note or it has expired.</p></div>';
+            pageEnd();
             exit;
         }
         $data['remaining_views'] = max(0, (int)$data['remaining_views'] - 1);
@@ -447,25 +671,32 @@ if ($noteId !== '') {
 
         // Render the note content once
         noCacheHeaders();
-        echo '<h3>Your Private Note</h3>';
-        echo '<div style="white-space:pre-wrap;">' . nl2br(html($contentRaw)) . '</div>';
-        echo '<p><em>This note has now been consumed and cannot be viewed again.</em></p>';
+        pageStart('Your Private Note');
+        echo '<div class="card">';
+        echo '<h2>Your Private Note</h2>';
+        echo '<div class="note-content">' . nl2br(html($contentRaw)) . '</div>';
+        echo '<p class="consumed">This note has been consumed and cannot be viewed again.</p>';
+        echo '</div>';
+        pageEnd();
         exit;
     }
 
     // GET: Inspect note to decide viewer type
     $data = readNote($path);
     $now = time();
-    if (!is_array($data)) { echo '<p>This note does not exist or has expired.</p>'; exit; }
-    if (isset($data['expires_at']) && $now > (int)$data['expires_at']) { deleteNoteFile($path); echo '<p>This note has expired and is no longer available.</p>'; exit; }
+    if (!is_array($data)) { pageStart('Not Found'); echo '<div class="card"><p>This note does not exist or has expired.</p></div>'; pageEnd(); exit; }
+    if (isset($data['expires_at']) && $now > (int)$data['expires_at']) { deleteNoteFile($path); pageStart('Expired'); echo '<div class="card"><p>This note has expired and is no longer available.</p></div>'; pageEnd(); exit; }
     $type = $data['type'] ?? 'server';
     if ($type === 'e2e') {
-        echo '<h3>Enter Passcode</h3>';
-        echo '<p>The decryption key must be present in the URL fragment (#...). Only your browser sees it.</p>';
-        echo '<div id="keyStatus" style="color:#b00;"></div>';
-        echo '<input type="password" id="passcode" placeholder="6-character passcode" maxlength="128"> ';
-        echo '<button id="viewBtn">Decrypt & View (consumes note)</button>';
-        echo '<pre id="output" style="white-space:pre-wrap; display:none;"></pre>';
+        pageStart('Enter Passcode');
+        echo '<div class="card">';
+        echo '<h2>Enter Passcode</h2>';
+        echo '<p style="font-size:.9rem;color:var(--text-muted)">The decryption key must be present in the URL fragment (#...). Only your browser sees it.</p>';
+        echo '<div id="keyStatus" class="error" role="alert" aria-live="assertive"></div>';
+        echo '<div class="form-row"><label for="passcode">Passcode:</label><br><input type="password" id="passcode" placeholder="6-character passcode" maxlength="128" aria-describedby="keyStatus"></div>';
+        echo '<div class="actions"><button id="viewBtn">Decrypt &amp; View</button></div>';
+        echo '</div>';
+        echo '<div class="card" id="outputCard" style="display:none"><h2>Your Private Note</h2><div class="note-content" id="output"></div><p class="consumed">This note has been consumed and cannot be viewed again.</p></div>';
         echo '<script>
         (function(){
           function b64ToBytes(b64){ return Uint8Array.from(atob(b64), c=>c.charCodeAt(0)); }
@@ -493,7 +724,8 @@ if ($noteId !== '') {
               const tag = b64ToBytes(j.data.tag);
               const plaintext = await decryptGCM(key, iv, ct, tag);
               var out = document.getElementById("output");
-              out.textContent = plaintext; out.style.display = "block";
+              out.textContent = plaintext;
+              document.getElementById("outputCard").style.display = "block";
               keyStatus.textContent = "";
             } catch (e) {
               alert("Decryption failed: " + e);
@@ -501,33 +733,60 @@ if ($noteId !== '') {
           });
         })();
         </script>';
+        pageEnd();
         exit;
     }
 
     // Default server-side decryption prompt
-    echo '<h3>Enter Passcode</h3>';
+    pageStart('Enter Passcode');
+    echo '<div class="card">';
+    echo '<h2>Enter Passcode</h2>';
     echo '<form method="post">';
     echo csrfField();
     echo '<input type="hidden" name="action" value="view">';
-    echo '<input type="password" name="passcode" placeholder="6-character passcode" required maxlength="128"> ';
-    echo '<button type="submit">View Note</button>';
-    echo '</form>';
+    echo '<div class="form-row"><label for="passcode">Passcode:</label><br><input type="password" id="passcode" name="passcode" placeholder="6-character passcode" required maxlength="128"></div>';
+    echo '<div class="actions"><button type="submit">View Note</button></div>';
+    echo '</form></div>';
+    pageEnd();
     exit;
 }
 
 // Default: show create form
 $autoGeneratedPasscode = generateRandomPasscode(6);
-echo '<h3>Create a Private Note</h3>';
+pageStart('Create a Note');
+echo '<div class="card">';
+echo '<h2>Create a Private Note</h2>';
 echo '<form id="createForm" method="post" action="' . html($_SERVER['PHP_SELF']) . '">';
 echo csrfField();
 echo '<input type="hidden" name="action" value="create">';
-echo '<label for="content">Enter the text you want to display:</label><br>';
-echo '<textarea id="content" name="content" rows="6" cols="60" required></textarea><br><br>';
-echo '<label for="passcode">Your 6-character passcode (auto-generated, you can change it):</label><br>';
-echo '<input type="text" id="passcode" name="passcode" value="' . html($autoGeneratedPasscode) . '" maxlength="6" required> ';
-echo '<div><label><input type="checkbox" id="e2e"> Encrypt in your browser (E2E)</label></div>';
-echo '<button type="submit">Create Note</button>';
+echo '<div class="form-row"><label for="content">Your message:</label>';
+echo '<textarea id="content" name="content" rows="6" required placeholder="Type your private note here..."></textarea></div>';
+echo '<div class="form-row"><label for="passcode">Passcode (6 alphanumeric characters):</label><br>';
+echo '<input type="text" id="passcode" name="passcode" value="' . html($autoGeneratedPasscode) . '" maxlength="6" required style="margin-top:.35rem;font-family:monospace;letter-spacing:.1em"></div>';
+echo '<label class="checkbox-label"><input type="checkbox" id="e2e" checked> End-to-end encryption (E2E)</label>';
+echo '<div class="actions"><button type="submit">Create Note</button></div>';
 echo '</form>';
+echo '</div>';
+
+// How it works section
+echo '<div class="card info-section" style="border-top:none;margin-top:0">';
+echo '<h3>How It Works</h3>';
+echo '<ul>';
+echo '<li><strong>Write a note</strong> &mdash; type your message and set a passcode (or use the auto-generated one).</li>';
+echo '<li><strong>Share the link</strong> &mdash; send the link to your recipient through one channel (e.g. email).</li>';
+echo '<li><strong>Share the passcode separately</strong> &mdash; send the 6-character passcode through a different channel (e.g. text message) for added security.</li>';
+echo '<li><strong>One view, then gone</strong> &mdash; the note can only be viewed once. After that, it is permanently deleted from the server. Unread notes expire after 72 hours.</li>';
+echo '</ul>';
+
+echo '<h3>About End-to-End Encryption (E2E)</h3>';
+echo '<p>When you check the E2E option, your note is encrypted directly in your browser before it ever leaves your device. The encryption key is embedded in the URL fragment (the part after the <code>#</code>), which your browser never sends to the server. This means:</p>';
+echo '<ul>';
+echo '<li>The server only stores ciphertext &mdash; it cannot read your note.</li>';
+echo '<li>Only someone with the full link (including the <code>#</code> fragment) and the passcode can decrypt and view the note.</li>';
+echo '<li>Even if the server were compromised, your note content remains protected.</li>';
+echo '</ul>';
+echo '<p>Without E2E, the server encrypts your note with AES-256-GCM. This is still secure and simpler to use, but the server briefly handles the plaintext during creation and viewing.</p>';
+echo '</div>';
 echo '<script>
 (function(){
   const form = document.getElementById("createForm");
@@ -584,4 +843,5 @@ echo '<script>
   form.addEventListener("submit", encryptInBrowser);
 })();
 </script>';
+pageEnd();
 ?>
