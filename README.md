@@ -53,7 +53,7 @@ The server stores ciphertext it cannot decrypt. Even a compromised server cannot
 | Timing side-channels | Constant-time passcode verification for missing notes |
 | Key isolation | `.keyring` blocked via `.htaccess`, never logged or exposed |
 | Input validation | Note IDs validated as 32-char hex; passcode capped at 128 bytes; content capped at 100KB |
-| CSP | Nonce-based Content-Security-Policy (no `unsafe-inline`) |
+| CSP | Nonce-based Content-Security-Policy for scripts; styles currently allow `unsafe-inline` |
 
 ### Post-Quantum Considerations
 

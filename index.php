@@ -96,9 +96,13 @@ function loadKeyring(string $dir, int $rotationSeconds): array {
                 'key' => base64_encode($decoded),
                 'created_at' => time(),
             ]];
-            @file_put_contents($path, json_encode($ring), LOCK_EX);
-            @chmod($path, 0600);
-            @unlink($legacyPath);
+            $written = file_put_contents($path, json_encode($ring), LOCK_EX);
+            if ($written !== false) {
+                @chmod($path, 0600);
+                @unlink($legacyPath);
+            } else {
+                error_log('send-private-note: failed to write .keyring during migration, keeping .secretkey');
+            }
         }
     }
 
@@ -125,28 +129,34 @@ function loadKeyring(string $dir, int $rotationSeconds): array {
         if ($decoded !== null) {
             // Find or create an entry for the env key
             $envB64 = base64_encode($decoded);
-            $found = false;
-            foreach ($ring as &$entry) {
-                if (base64_encode(base64_decode($entry['key'], true)) === $envB64) {
-                    $found = true;
+            $matchedEntry = null;
+            foreach ($ring as $entry) {
+                if (!is_array($entry) || !isset($entry['key']) || !is_string($entry['key'])) {
+                    continue;
+                }
+                $entryDecoded = base64_decode($entry['key'], true);
+                if ($entryDecoded === false || strlen($entryDecoded) !== 32) {
+                    continue;
+                }
+                if (base64_encode($entryDecoded) === $envB64) {
+                    $matchedEntry = $entry;
                     break;
                 }
             }
-            unset($entry);
-            if (!$found) {
-                $ring[] = [
+            if ($matchedEntry === null) {
+                $matchedEntry = [
                     'id' => bin2hex(random_bytes(8)),
                     'key' => $envB64,
                     'created_at' => time(),
                 ];
+                $ring[] = $matchedEntry;
                 $json = json_encode($ring);
                 ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
                 @chmod($path, 0600);
             }
             flock($fp, LOCK_UN);
             fclose($fp);
-            $active = end($ring);
-            return ['ring' => $ring, 'active' => $active];
+            return ['ring' => $ring, 'active' => $matchedEntry];
         }
     }
 
@@ -179,53 +189,26 @@ function loadKeyring(string $dir, int $rotationSeconds): array {
 function getActiveKey(string $dir, int $rotationSeconds): array {
     $data = loadKeyring($dir, $rotationSeconds);
     $active = $data['active'];
-    return [$active['id'], base64_decode($active['key'], true)];
+    $key = base64_decode($active['key'] ?? '', true);
+    if ($key === false || strlen($key) !== 32) {
+        throw new RuntimeException('Active encryption key is invalid or corrupted.');
+    }
+    return [$active['id'], $key];
 }
 
 /** Look up a specific key by ID for decryption. */
 function getKeyById(string $dir, string $keyId, int $rotationSeconds): ?string {
     $data = loadKeyring($dir, $rotationSeconds);
     foreach ($data['ring'] as $entry) {
-        if ($entry['id'] === $keyId) {
-            return base64_decode($entry['key'], true);
+        if (($entry['id'] ?? '') === $keyId) {
+            $key = base64_decode($entry['key'] ?? '', true);
+            if ($key === false || strlen($key) !== 32) {
+                return null;
+            }
+            return $key;
         }
     }
     return null;
-}
-
-/** Remove keys older than the given max age (in seconds). */
-function pruneKeyring(string $dir, int $maxAgeSeconds): int {
-    $path = keyringPath($dir);
-    if (!is_file($path)) return 0;
-    $fp = @fopen($path, 'r+');
-    if ($fp === false) return 0;
-    if (!flock($fp, LOCK_EX)) { fclose($fp); return 0; }
-    rewind($fp);
-    $raw = stream_get_contents($fp);
-    $ring = ($raw !== '' && $raw !== false) ? json_decode($raw, true) : [];
-    if (!is_array($ring) || count($ring) <= 1) {
-        flock($fp, LOCK_UN); fclose($fp);
-        return 0; // Never prune the last key
-    }
-    $now = time();
-    $pruned = 0;
-    $kept = [];
-    foreach ($ring as $i => $entry) {
-        // Always keep the last entry (active key)
-        if ($i === count($ring) - 1) {
-            $kept[] = $entry;
-        } elseif (($now - (int)$entry['created_at']) < $maxAgeSeconds) {
-            $kept[] = $entry;
-        } else {
-            $pruned++;
-        }
-    }
-    if ($pruned > 0) {
-        $json = json_encode($kept);
-        ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
-    }
-    flock($fp, LOCK_UN); fclose($fp);
-    return $pruned;
 }
 
 function encryptContent(string $plaintext, string $key): array {
