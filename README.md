@@ -106,11 +106,13 @@ E2E:     Browser encrypts locally ──POST──> Server stores ciphertext
 
 2. Ensure the `private-notes/` directory is writable by the web server.
 
-3. (Optional) Set a persistent encryption key for production:
+3. Copy the example environment file and configure as needed:
    ```bash
-   export PRIVATE_NOTES_KEY=$(openssl rand -base64 32)
+   cp .env-example .env
    ```
-   If unset, a key is auto-generated and stored in `private-notes/.secretkey`.
+   Available settings in `.env`:
+   - `CANONICAL_HOST` — Full base URL for generated share links (e.g. `https://notes.example.com`). Prevents host-header injection. If left empty, falls back to the HTTP Host header.
+   - `PRIVATE_NOTES_KEY` — Base64- or hex-encoded 32-byte encryption key for server-side notes. If left empty, a key is auto-generated and stored in `private-notes/.secretkey`.
 
 4. Access via browser: `http://yourserver/once.php/`
 
@@ -129,6 +131,7 @@ Expired and consumed notes are deleted automatically on view. For additional cle
 |------|---------|
 | `index.php` | Entire application -- routing, encryption, HTML output |
 | `cleanup_private_notes.php` | CLI utility to purge expired/consumed notes |
+| `.env-example` | Example environment config (copy to `.env`) |
 | `private-notes/.htaccess` | Blocks web access to `.secretkey` |
 
 ## License
