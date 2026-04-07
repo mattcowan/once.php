@@ -1,8 +1,9 @@
 # Note data files (contain encrypted content and passcode hashes)
 private-notes/note_*.json
 
-# Server encryption key
+# Server encryption keys
 private-notes/.secretkey
+private-notes/.keyring
 
 # Environment config
 .env

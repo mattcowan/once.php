@@ -20,12 +20,25 @@ $canonicalHost = getenv('CANONICAL_HOST') ?: '';
 $directory = 'private-notes';
 $ttlSeconds = 72 * 3600; // 72 hours TTL
 $maxNotes = 10000; // Maximum number of notes allowed on disk
-$maxPasscodeAttempts = 5; // Lock note after this many failed attempts
-$lockoutSeconds = 900; // 15-minute lockout after max failed attempts
+$maxPasscodeAttempts = 10; // Lock note after this many failed attempts
+$lockoutSeconds = 3600; // 1-hour lockout after max failed attempts
+$maxContentBytes = 102400; // 100 KB max note content size
+$maxPasscodeBytes = 128; // Hard cap on passcode input length
+$keyRotationSeconds = 86400; // Rotate encryption key every 24 hours
 
 // Helpers
+function generateCspNonce(): string {
+    $GLOBALS['_csp_nonce'] = base64_encode(random_bytes(16));
+    return $GLOBALS['_csp_nonce'];
+}
+
+function cspNonce(): string {
+    return $GLOBALS['_csp_nonce'] ?? '';
+}
+
 function securityHeaders(): void {
-    header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
+    $nonce = generateCspNonce();
+    header("Content-Security-Policy: default-src 'self'; script-src 'nonce-{$nonce}'; style-src 'self' 'unsafe-inline'");
     header('X-Frame-Options: DENY');
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: no-referrer');
@@ -52,45 +65,162 @@ function generateNoteId(): string {
     return bin2hex(random_bytes(16)); // 32-char hex id
 }
 
+function isValidNoteId(string $id): bool {
+    return preg_match('/^[0-9a-f]{32}$/', $id) === 1;
+}
+
 function notePath(string $dir, string $id): string {
-    $safeId = basename($id);
-    return rtrim($dir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'note_' . $safeId . '.json';
+    return rtrim($dir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'note_' . $id . '.json';
 }
 
-function secretKeyPath(string $dir): string {
-    return rtrim($dir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . '.secretkey';
+function keyringPath(string $dir): string {
+    return rtrim($dir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . '.keyring';
 }
 
-function getServerKey(string $dir): string {
-    $env = getenv('PRIVATE_NOTES_KEY');
-    $tryDecode = function ($val) {
-        if ($val === '' || $val === false || $val === null) return null;
-        $val = trim((string)$val);
-        $b64 = base64_decode($val, true);
-        if ($b64 !== false && strlen($b64) === 32) return $b64;
-        if (ctype_xdigit($val) && strlen($val) === 64) {
-            $bin = @hex2bin($val);
-            if ($bin !== false && strlen($bin) === 32) return $bin;
+function decodeKeyValue(string $val): ?string {
+    $val = trim($val);
+    if ($val === '') return null;
+    $b64 = base64_decode($val, true);
+    if ($b64 !== false && strlen($b64) === 32) return $b64;
+    if (ctype_xdigit($val) && strlen($val) === 64) {
+        $bin = @hex2bin($val);
+        if ($bin !== false && strlen($bin) === 32) return $bin;
+    }
+    if (strlen($val) === 32) return $val;
+    return null;
+}
+
+/**
+ * Read the keyring under an exclusive lock, rotate if the active key is stale,
+ * and return the full ring plus the active key entry.
+ */
+function loadKeyring(string $dir, int $rotationSeconds): array {
+    $path = keyringPath($dir);
+
+    // Migrate from legacy .secretkey if it exists
+    $legacyPath = rtrim($dir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . '.secretkey';
+    if (is_file($legacyPath) && !is_file($path)) {
+        $contents = @file_get_contents($legacyPath);
+        $decoded = $contents !== false ? decodeKeyValue($contents) : null;
+        if ($decoded !== null) {
+            $ring = [[
+                'id' => bin2hex(random_bytes(8)),
+                'key' => base64_encode($decoded),
+                'created_at' => time(),
+            ]];
+            $written = file_put_contents($path, json_encode($ring), LOCK_EX);
+            if ($written !== false) {
+                @chmod($path, 0600);
+                @unlink($legacyPath);
+            } else {
+                error_log('send-private-note: failed to write .keyring during migration, keeping .secretkey');
+            }
         }
-        if (strlen($val) === 32) return $val; // raw 32 bytes in env (unlikely)
-        return null;
-    };
-    $key = $tryDecode($env);
-    if ($key !== null) return $key;
-
-    $keyFile = secretKeyPath($dir);
-    if (is_file($keyFile)) {
-        $contents = @file_get_contents($keyFile);
-        $decoded = $tryDecode($contents);
-        if ($decoded !== null) return $decoded;
     }
 
-    // Generate a new key and persist as base64
-    $newKey = random_bytes(32);
-    $b64 = base64_encode($newKey);
-    @file_put_contents($keyFile, $b64, LOCK_EX);
-    @chmod($keyFile, 0600);
-    return $newKey;
+    // Open or create the keyring file under exclusive lock
+    $fp = @fopen($path, 'c+');
+    if ($fp === false) {
+        throw new RuntimeException('Cannot open keyring file.');
+    }
+    if (!flock($fp, LOCK_EX)) {
+        fclose($fp);
+        throw new RuntimeException('Cannot lock keyring file.');
+    }
+    rewind($fp);
+    $raw = stream_get_contents($fp);
+    $ring = ($raw !== '' && $raw !== false) ? json_decode($raw, true) : null;
+    if (!is_array($ring)) {
+        $ring = [];
+    }
+
+    // Check for env var override — always treated as the active key
+    $env = getenv('PRIVATE_NOTES_KEY');
+    if ($env !== false && $env !== '') {
+        $decoded = decodeKeyValue($env);
+        if ($decoded !== null) {
+            // Find or create an entry for the env key
+            $envB64 = base64_encode($decoded);
+            $matchedEntry = null;
+            foreach ($ring as $entry) {
+                if (!is_array($entry) || !isset($entry['key']) || !is_string($entry['key'])) {
+                    continue;
+                }
+                $entryDecoded = base64_decode($entry['key'], true);
+                if ($entryDecoded === false || strlen($entryDecoded) !== 32) {
+                    continue;
+                }
+                if (base64_encode($entryDecoded) === $envB64) {
+                    $matchedEntry = $entry;
+                    break;
+                }
+            }
+            if ($matchedEntry === null) {
+                $matchedEntry = [
+                    'id' => bin2hex(random_bytes(8)),
+                    'key' => $envB64,
+                    'created_at' => time(),
+                ];
+                $ring[] = $matchedEntry;
+                $json = json_encode($ring);
+                ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
+                @chmod($path, 0600);
+            }
+            flock($fp, LOCK_UN);
+            fclose($fp);
+            return ['ring' => $ring, 'active' => $matchedEntry];
+        }
+    }
+
+    // Auto-rotate: generate a new key if ring is empty or active key is stale
+    $now = time();
+    $needsRotation = empty($ring);
+    if (!$needsRotation) {
+        $active = end($ring);
+        $needsRotation = ($now - (int)$active['created_at']) >= $rotationSeconds;
+    }
+
+    if ($needsRotation) {
+        $ring[] = [
+            'id' => bin2hex(random_bytes(8)),
+            'key' => base64_encode(random_bytes(32)),
+            'created_at' => $now,
+        ];
+        $json = json_encode($ring);
+        ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
+        @chmod($path, 0600);
+    }
+
+    flock($fp, LOCK_UN);
+    fclose($fp);
+    $active = end($ring);
+    return ['ring' => $ring, 'active' => $active];
+}
+
+/** Get the active key for encryption. Returns [key_id, raw_key_bytes]. */
+function getActiveKey(string $dir, int $rotationSeconds): array {
+    $data = loadKeyring($dir, $rotationSeconds);
+    $active = $data['active'];
+    $key = base64_decode($active['key'] ?? '', true);
+    if ($key === false || strlen($key) !== 32) {
+        throw new RuntimeException('Active encryption key is invalid or corrupted.');
+    }
+    return [$active['id'], $key];
+}
+
+/** Look up a specific key by ID for decryption. */
+function getKeyById(string $dir, string $keyId, int $rotationSeconds): ?string {
+    $data = loadKeyring($dir, $rotationSeconds);
+    foreach ($data['ring'] as $entry) {
+        if (($entry['id'] ?? '') === $keyId) {
+            $key = base64_decode($entry['key'] ?? '', true);
+            if ($key === false || strlen($key) !== 32) {
+                return null;
+            }
+            return $key;
+        }
+    }
+    return null;
 }
 
 function encryptContent(string $plaintext, string $key): array {
@@ -353,7 +483,6 @@ function verifyCsrf(): bool {
 
 function noCacheHeaders(): void {
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-    header('Cache-Control: post-check=0, pre-check=0', false);
     header('Pragma: no-cache');
 }
 
@@ -366,6 +495,12 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start(['cookie_samesite' => 'Strict', 'cookie_httponly' => true]);
 }
 ensureNotesDir($directory);
+
+// Validate note ID early — must be exactly 32 hex chars or empty
+if ($noteId !== '' && !isValidNoteId($noteId)) {
+    echo '<p>Invalid note ID.</p>';
+    exit;
+}
 
 // Handle note creation
 if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create') {
@@ -389,10 +524,9 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
     }
 
     if (!$isE2E && trim($content) === '') {
-        pageStart('Error');
-        echo '<div class="card"><p>Please provide some content for the note.</p></div>';
-        pageEnd();
-        exit;
+        echo '<p>Please provide some content for the note.</p>';
+    } elseif (!$isE2E && strlen($content) > $maxContentBytes) {
+        echo '<p>Note content exceeds the maximum allowed size of ' . ($maxContentBytes / 1024) . ' KB.</p>';
     } else {
         if ($passcode === '') {
             $passcode = generateRandomPasscode(6);
@@ -427,6 +561,10 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
                     pageEnd();
                     exit;
                 }
+                if (strlen($ct) > $maxContentBytes * 2) { // base64 expansion ~1.33x, 2x is generous
+                    echo '<p>Encrypted payload exceeds the maximum allowed size.</p>';
+                    exit;
+                }
                 $note = [
                     'type' => 'e2e',
                     'ciphertext' => $ct,
@@ -439,7 +577,7 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
                 ];
             } else {
                 try {
-                    $key = getServerKey($directory);
+                    [$keyId, $key] = getActiveKey($directory, $keyRotationSeconds);
                     $bundle = encryptContent($content, $key);
                 } catch (Throwable $e) {
                     error_log('send-private-note: encryption failed: ' . $e->getMessage());
@@ -451,6 +589,7 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
 
                 $note = [
                     'type' => 'server',
+                    'key_id' => $keyId,
                     'ciphertext' => $bundle['ciphertext'],
                     'iv' => $bundle['iv'],
                     'tag' => $bundle['tag'],
@@ -467,25 +606,13 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
                 pageEnd();
                 exit;
             } else {
-                error_log(sprintf('send-private-note: note created id=%s type=%s ip=%s', $id, $note['type'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-                noCacheHeaders();
-                if ($canonicalHost !== '') {
-                    $baseUrl = rtrim($canonicalHost, '/') . $_SERVER['SCRIPT_NAME'];
-                } else {
-                    $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
-                    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-                    $baseUrl = $scheme . '://' . $host . $_SERVER['SCRIPT_NAME'];
-                }
-                $fullLink = $baseUrl . '?note=' . urlencode($id);
-                pageStart('Note Created');
-                echo copyScript();
-                echo '<div class="card">';
-                echo '<h2>Note Created</h2>';
+                error_log(sprintf('send-private-note: note created id=%s… type=%s ip=%s', substr($id, 0, 8), $note['type'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+                $link = basename(__FILE__) . '?note=' . urlencode($id);
+                echo '<h3>Note Created</h3>';
                 if ($isE2E) {
-                    echo '<p>Share this link. The decryption key is embedded in the URL fragment &mdash; the server never sees it.</p>';
-                    echo '<div class="share-box" id="shareLink">Generating link&hellip;</div>';
-                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" id="copyLinkBtn" style="display:none" onclick="copyToClipboard(document.getElementById(\'shareLinkText\').textContent,\'copyFeedback\')">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
-                    echo '<script>(function(){var base=' . json_encode($fullLink) . ';var h=window.location.hash||"";var key=h.replace(/^#/,"");var full=base+(key?("#"+key):"");var a=document.createElement("a");a.href=full;a.textContent=full;a.rel="noopener";a.target="_blank";a.id="shareLinkText";var c=document.getElementById("shareLink");c.textContent="";c.appendChild(a);document.getElementById("copyLinkBtn").style.display="inline-block";})();</script>';
+                    echo '<p>Share this link (contains the decryption key in the URL fragment; the server never sees it):</p>';
+                    echo '<div id="shareLink">Generating link…</div>';
+                    echo '<script nonce="' . html(cspNonce()) . '">(function(){var base=' . json_encode($link) . ';var h=window.location.hash||"";var key=h.replace(/^#/,"");var full=base+(key?("#"+key):"");var a=document.createElement("a");a.href=full;a.textContent=full;a.rel="noopener";a.target="_blank";var c=document.getElementById("shareLink");c.textContent="";c.appendChild(a);})();</script>';
                 } else {
                     echo '<p>Share this link:</p>';
                     echo '<div class="share-box"><a href="' . html($fullLink) . '" id="shareLinkText">' . html($fullLink) . '</a></div>';
@@ -513,7 +640,13 @@ if ($noteId !== '') {
     if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'fetch') {
         noCacheHeaders();
         header('Content-Type: application/json');
+        if (!verifyCsrf()) {
+            echo json_encode(['error' => 'invalid_request']); exit;
+        }
         $inputPass = isset($_POST['passcode']) ? (string)$_POST['passcode'] : '';
+        if (strlen($inputPass) > $maxPasscodeBytes) {
+            echo json_encode(['error' => 'bad_pass']); exit;
+        }
         if (!is_file($path)) {
             dummyPasswordVerify($inputPass);
             echo json_encode(['error' => 'not_found']); exit;
@@ -544,7 +677,7 @@ if ($noteId !== '') {
             $json = json_encode($data, JSON_UNESCAPED_SLASHES);
             ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
             flock($fp, LOCK_UN); fclose($fp);
-            error_log(sprintf('send-private-note: bad passcode (e2e) note=%s attempt=%d ip=%s', $noteId, $data['failed_attempts'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+            error_log(sprintf('send-private-note: bad passcode (e2e) note=%s… attempt=%d ip=%s', substr($noteId, 0, 8), $data['failed_attempts'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
             echo json_encode(['error' => 'bad_pass']); exit;
         }
         $payload = ['ciphertext' => $data['ciphertext'], 'iv' => $data['iv'], 'tag' => $data['tag']];
@@ -553,7 +686,7 @@ if ($noteId !== '') {
         ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
         flock($fp, LOCK_UN); fclose($fp);
         deleteNoteFile($path);
-        error_log(sprintf('send-private-note: note consumed (e2e) id=%s ip=%s', $noteId, $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        error_log(sprintf('send-private-note: note consumed (e2e) id=%s… ip=%s', substr($noteId, 0, 8), $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
         echo json_encode(['ok' => true, 'data' => $payload]);
         exit;
     }
@@ -567,6 +700,10 @@ if ($noteId !== '') {
             exit;
         }
         $inputPass = isset($_POST['passcode']) ? (string)$_POST['passcode'] : '';
+        if (strlen($inputPass) > $maxPasscodeBytes) {
+            echo '<p style="color:#b00;">Invalid passcode.</p>';
+            exit;
+        }
 
         // Atomic verify + decrement under lock
         if (!is_file($path)) {
@@ -651,7 +788,7 @@ if ($noteId !== '') {
             ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
             flock($fp, LOCK_UN);
             fclose($fp);
-            error_log(sprintf('send-private-note: bad passcode (server) note=%s attempt=%d ip=%s', $noteId, $data['failed_attempts'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+            error_log(sprintf('send-private-note: bad passcode (server) note=%s… attempt=%d ip=%s', substr($noteId, 0, 8), $data['failed_attempts'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
             // Re-show prompt with error
             pageStart('Enter Passcode');
             echo '<div class="card">';
@@ -669,7 +806,12 @@ if ($noteId !== '') {
 
         // Valid passcode: decrypt and consume the single view
         try {
-            $key = getServerKey($directory);
+            $keyId = $data['key_id'] ?? '';
+            $key = $keyId !== '' ? getKeyById($directory, $keyId, $keyRotationSeconds) : null;
+            // Fallback for notes created before keyring migration
+            if ($key === null) {
+                [$_, $key] = getActiveKey($directory, $keyRotationSeconds);
+            }
             $contentRaw = decryptContent($data, $key);
         } catch (Throwable $e) {
             $contentRaw = null;
@@ -696,7 +838,7 @@ if ($noteId !== '') {
         if ((int)$data['remaining_views'] <= 0) {
             deleteNoteFile($path);
         }
-        error_log(sprintf('send-private-note: note consumed (server) id=%s ip=%s', $noteId, $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        error_log(sprintf('send-private-note: note consumed (server) id=%s… ip=%s', substr($noteId, 0, 8), $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
 
         // Render the note content once
         noCacheHeaders();
@@ -717,17 +859,15 @@ if ($noteId !== '') {
     if (isset($data['expires_at']) && $now > (int)$data['expires_at']) { deleteNoteFile($path); pageStart('Expired'); echo '<div class="card"><p>This note has expired and is no longer available.</p></div>'; pageEnd(); exit; }
     $type = $data['type'] ?? 'server';
     if ($type === 'e2e') {
-        pageStart('Enter Passcode');
-        echo '<div class="card">';
-        echo '<h2>Enter Passcode</h2>';
-        echo '<p style="font-size:.9rem;color:var(--text-muted)">The decryption key must be present in the URL fragment (#...). Only your browser sees it.</p>';
-        echo '<div id="keyStatus" class="error" role="alert" aria-live="assertive"></div>';
-        echo '<div class="form-row"><label for="passcode">Passcode:</label><br><input type="password" id="passcode" placeholder="6-character passcode" maxlength="128" aria-describedby="keyStatus"></div>';
-        echo '<div class="actions"><button id="viewBtn">Decrypt &amp; View</button></div>';
-        echo '</div>';
-        echo '<div class="card" id="outputCard" style="display:none"><h2>Your Private Note</h2><div class="note-content" id="output"></div><p class="consumed">This note has been consumed and cannot be viewed again.</p></div>';
-        echo '<script>
+        echo '<h3>Enter Passcode</h3>';
+        echo '<p>The decryption key must be present in the URL fragment (#...). Only your browser sees it.</p>';
+        echo '<div id="keyStatus" style="color:#b00;"></div>';
+        echo '<input type="password" id="passcode" placeholder="6-character passcode" maxlength="128"> ';
+        echo '<button id="viewBtn">Decrypt & View (consumes note)</button>';
+        echo '<pre id="output" style="white-space:pre-wrap; display:none;"></pre>';
+        echo '<script nonce="' . html(cspNonce()) . '">
         (function(){
+          var csrfToken = ' . json_encode(csrfToken()) . ';
           function b64ToBytes(b64){ return Uint8Array.from(atob(b64), c=>c.charCodeAt(0)); }
           function b64urlToBytes(b64u){ b64u=b64u.replace(/-/g, "+").replace(/_/g, "/"); var pad = b64u.length % 4; if (pad) b64u += "===".slice(pad); return b64ToBytes(b64u); }
           async function decryptGCM(keyBytes, ivBytes, ctBytes, tagBytes){
@@ -745,7 +885,7 @@ if ($noteId !== '') {
             if (!key) { alert("Missing key in URL fragment."); return; }
             var pass = document.getElementById("passcode").value || "";
             try {
-              const resp = await fetch(window.location.href, { method: "POST", headers: {"Content-Type":"application/x-www-form-urlencoded"}, body: new URLSearchParams({ action: "fetch", passcode: pass }) });
+              const resp = await fetch(window.location.href, { method: "POST", headers: {"Content-Type":"application/x-www-form-urlencoded"}, body: new URLSearchParams({ action: "fetch", passcode: pass, csrf_token: csrfToken }) });
               const j = await resp.json();
               if (!j.ok) { alert(j.error || "Failed"); return; }
               const ct = b64ToBytes(j.data.ciphertext);
@@ -797,28 +937,7 @@ echo '<label class="checkbox-label"><input type="checkbox" id="e2e" name="e2e_re
 echo '<noscript><p class="error">End-to-end encryption requires JavaScript. If JavaScript is disabled, your note will use server-side encryption instead.</p></noscript>';
 echo '<div class="actions"><button type="submit">Create Note</button></div>';
 echo '</form>';
-echo '</div>';
-
-// How it works section
-echo '<div class="card info-section" style="border-top:none;margin-top:0">';
-echo '<h3>How It Works</h3>';
-echo '<ul>';
-echo '<li><strong>Write a note</strong> &mdash; type your message and set a passcode (or use the auto-generated one).</li>';
-echo '<li><strong>Share the link</strong> &mdash; send the link to your recipient through one channel (e.g. email).</li>';
-echo '<li><strong>Share the passcode separately</strong> &mdash; send the 6-character passcode through a different channel (e.g. text message) for added security.</li>';
-echo '<li><strong>One view, then gone</strong> &mdash; the note can only be viewed once. After that, it is permanently deleted from the server. Unread notes expire after 72 hours.</li>';
-echo '</ul>';
-
-echo '<h3 style="margin-top:1.5rem">About End-to-End Encryption (E2E)</h3>';
-echo '<p>When you check the E2E option, your note is encrypted directly in your browser before it ever leaves your device. The encryption key is embedded in the URL fragment (the part after the <code>#</code>), which your browser never sends to the server. This means:</p>';
-echo '<ul>';
-echo '<li>The server only stores ciphertext &mdash; it cannot read your note.</li>';
-echo '<li>Only someone with the full link (including the <code>#</code> fragment) and the passcode can decrypt and view the note.</li>';
-echo '<li>Even if the server were compromised, your note content remains protected.</li>';
-echo '</ul>';
-echo '<p>Without E2E, the server encrypts your note with AES-256-GCM. This is still secure and simpler to use, but the server briefly handles the plaintext during creation and viewing.</p>';
-echo '</div>';
-echo '<script>
+echo '<script nonce="' . html(cspNonce()) . '">
 (function(){
   const form = document.getElementById("createForm");
   const e2e = document.getElementById("e2e");

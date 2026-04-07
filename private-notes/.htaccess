@@ -1,15 +1,15 @@
-# Deny web access to the secret key file
+# Deny web access to key files
 <IfModule mod_authz_core.c>
-  <Files ".secretkey">
+  <FilesMatch "^\.(secretkey|keyring)$">
     Require all denied
-  </Files>
+  </FilesMatch>
 </IfModule>
 <IfModule !mod_authz_core.c>
-  <Files ".secretkey">
+  <FilesMatch "^\.(secretkey|keyring)$">
     Order allow,deny
     Deny from all
     Satisfy All
-  </Files>
+  </FilesMatch>
 </IfModule>
 
 # Optional hardening: prevent directory listing
