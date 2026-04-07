@@ -5,5 +5,8 @@ private-notes/note_*.json
 private-notes/.secretkey
 private-notes/.keyring
 
+# Environment config
+.env
+
 # PHP sessions
 sess_*
