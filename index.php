@@ -607,12 +607,24 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
                 exit;
             } else {
                 error_log(sprintf('send-private-note: note created id=%s… type=%s ip=%s', substr($id, 0, 8), $note['type'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-                $link = basename(__FILE__) . '?note=' . urlencode($id);
-                echo '<h3>Note Created</h3>';
+                noCacheHeaders();
+                if ($canonicalHost !== '') {
+                    $baseUrl = rtrim($canonicalHost, '/') . $_SERVER['SCRIPT_NAME'];
+                } else {
+                    $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+                    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                    $baseUrl = $scheme . '://' . $host . $_SERVER['SCRIPT_NAME'];
+                }
+                $fullLink = $baseUrl . '?note=' . urlencode($id);
+                pageStart('Note Created');
+                echo copyScript();
+                echo '<div class="card">';
+                echo '<h2>Note Created</h2>';
                 if ($isE2E) {
-                    echo '<p>Share this link (contains the decryption key in the URL fragment; the server never sees it):</p>';
-                    echo '<div id="shareLink">Generating link…</div>';
-                    echo '<script nonce="' . html(cspNonce()) . '">(function(){var base=' . json_encode($link) . ';var h=window.location.hash||"";var key=h.replace(/^#/,"");var full=base+(key?("#"+key):"");var a=document.createElement("a");a.href=full;a.textContent=full;a.rel="noopener";a.target="_blank";var c=document.getElementById("shareLink");c.textContent="";c.appendChild(a);})();</script>';
+                    echo '<p>Share this link. The decryption key is embedded in the URL fragment &mdash; the server never sees it.</p>';
+                    echo '<div class="share-box" id="shareLink">Generating link&hellip;</div>';
+                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" id="copyLinkBtn" style="display:none" onclick="copyToClipboard(document.getElementById(\'shareLinkText\').textContent,\'copyFeedback\')">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
+                    echo '<script nonce="' . html(cspNonce()) . '">(function(){var base=' . json_encode($fullLink) . ';var h=window.location.hash||"";var key=h.replace(/^#/,"");var full=base+(key?("#"+key):"");var a=document.createElement("a");a.href=full;a.textContent=full;a.rel="noopener";a.target="_blank";a.id="shareLinkText";var c=document.getElementById("shareLink");c.textContent="";c.appendChild(a);document.getElementById("copyLinkBtn").style.display="inline-block";})();</script>';
                 } else {
                     echo '<p>Share this link:</p>';
                     echo '<div class="share-box"><a href="' . html($fullLink) . '" id="shareLinkText">' . html($fullLink) . '</a></div>';
