@@ -436,7 +436,7 @@ function pageEnd(): void {
 }
 
 function copyScript(): string {
-    return '<script>
+    return '<script nonce="' . html(cspNonce()) . '">
 function copyToClipboard(text, feedbackId) {
   navigator.clipboard.writeText(text).then(function(){
     var el = document.getElementById(feedbackId);
@@ -622,17 +622,21 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
                 if ($isE2E) {
                     echo '<p>Share this link. The decryption key is embedded in the URL fragment &mdash; the server never sees it.</p>';
                     echo '<div class="share-box" id="shareLink">Generating link&hellip;</div>';
-                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" id="copyLinkBtn" style="display:none" onclick="copyToClipboard(document.getElementById(\'shareLinkText\').textContent,\'copyFeedback\')">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
-                    echo '<script nonce="' . html(cspNonce()) . '">(function(){var base=' . json_encode($fullLink) . ';var h=window.location.hash||"";var key=h.replace(/^#/,"");var full=base+(key?("#"+key):"");var a=document.createElement("a");a.href=full;a.textContent=full;a.rel="noopener";a.target="_blank";a.id="shareLinkText";var c=document.getElementById("shareLink");c.textContent="";c.appendChild(a);document.getElementById("copyLinkBtn").style.display="inline-block";})();</script>';
+                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" id="copyLinkBtn" style="display:none">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
+                    echo '<script nonce="' . html(cspNonce()) . '">(function(){var base=' . json_encode($fullLink) . ';var h=window.location.hash||"";var key=h.replace(/^#/,"");var full=base+(key?("#"+key):"");var a=document.createElement("a");a.href=full;a.textContent=full;a.rel="noopener";a.target="_blank";a.id="shareLinkText";var c=document.getElementById("shareLink");c.textContent="";c.appendChild(a);var btn=document.getElementById("copyLinkBtn");btn.style.display="inline-block";btn.addEventListener("click",function(){copyToClipboard(document.getElementById("shareLinkText").textContent,"copyFeedback");});})();</script>';
                 } else {
                     echo '<p>Share this link:</p>';
                     echo '<div class="share-box"><a href="' . html($fullLink) . '" id="shareLinkText">' . html($fullLink) . '</a></div>';
-                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" onclick="copyToClipboard(document.getElementById(\'shareLinkText\').textContent,\'copyFeedback\')">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
+                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" id="copyLinkBtn">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
                 }
                 echo '<div class="form-row" style="margin-top:1rem"><label>Passcode (share separately):</label><br>';
-                echo '<span class="passcode-display">' . html($passcode) . '</span>';
-                echo '<button class="btn btn-copy" onclick="copyToClipboard(\'' . html($passcode) . '\',\'copyPassFeedback\')" style="margin-left:.5rem">Copy</button>';
+                echo '<span class="passcode-display" id="passcodeDisplay">' . html($passcode) . '</span>';
+                echo '<button class="btn btn-copy" id="copyPassBtn" style="margin-left:.5rem">Copy</button>';
                 echo '<span class="copy-feedback" id="copyPassFeedback" role="status" aria-live="polite">Copied!</span></div>';
+                echo '<script nonce="' . html(cspNonce()) . '">(function(){';
+                echo 'var lb=document.getElementById("copyLinkBtn");if(lb&&!lb._bound){lb._bound=true;lb.addEventListener("click",function(){copyToClipboard(document.getElementById("shareLinkText").textContent,"copyFeedback");});}';
+                echo 'document.getElementById("copyPassBtn").addEventListener("click",function(){copyToClipboard(' . json_encode($passcode) . ',"copyPassFeedback");});';
+                echo '})();</script>';
                 echo '<p style="font-size:.85rem;color:var(--text-muted);margin-top:1rem">This note can be viewed once. After viewing, it self-destructs. Expires in 72 hours if unused.</p>';
                 echo '</div>';
                 echo '<p style="text-align:center;margin-top:1rem"><a href="' . html(basename(__FILE__)) . '" class="btn btn-secondary">Create Another Note</a></p>';
