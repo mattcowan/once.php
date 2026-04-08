@@ -436,7 +436,7 @@ function pageEnd(): void {
 }
 
 function copyScript(): string {
-    return '<script>
+    return '<script nonce="' . html(cspNonce()) . '">
 function copyToClipboard(text, feedbackId) {
   navigator.clipboard.writeText(text).then(function(){
     var el = document.getElementById(feedbackId);
@@ -606,22 +606,37 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
                 pageEnd();
                 exit;
             } else {
-                error_log(sprintf('send-private-note: note created id=%s… type=%s ip=%s', substr($id, 0, 8), $note['type'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-                $link = basename(__FILE__) . '?note=' . urlencode($id);
-                echo '<h3>Note Created</h3>';
+                noCacheHeaders();
+                if ($canonicalHost !== '') {
+                    $baseUrl = rtrim($canonicalHost, '/') . $_SERVER['SCRIPT_NAME'];
+                } else {
+                    $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+                    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+                    $baseUrl = $scheme . '://' . $host . $_SERVER['SCRIPT_NAME'];
+                }
+                $fullLink = $baseUrl . '?note=' . urlencode($id);
+                pageStart('Note Created');
+                echo copyScript();
+                echo '<div class="card">';
+                echo '<h2>Note Created</h2>';
                 if ($isE2E) {
-                    echo '<p>Share this link (contains the decryption key in the URL fragment; the server never sees it):</p>';
-                    echo '<div id="shareLink">Generating link…</div>';
-                    echo '<script nonce="' . html(cspNonce()) . '">(function(){var base=' . json_encode($link) . ';var h=window.location.hash||"";var key=h.replace(/^#/,"");var full=base+(key?("#"+key):"");var a=document.createElement("a");a.href=full;a.textContent=full;a.rel="noopener";a.target="_blank";var c=document.getElementById("shareLink");c.textContent="";c.appendChild(a);})();</script>';
+                    echo '<p>Share this link. The decryption key is embedded in the URL fragment &mdash; the server never sees it.</p>';
+                    echo '<div class="share-box" id="shareLink">Generating link&hellip;</div>';
+                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" id="copyLinkBtn" style="display:none">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
+                    echo '<script nonce="' . html(cspNonce()) . '">(function(){var base=' . json_encode($fullLink) . ';var h=window.location.hash||"";var key=h.replace(/^#/,"");var full=base+(key?("#"+key):"");var a=document.createElement("a");a.href=full;a.textContent=full;a.rel="noopener";a.target="_blank";a.id="shareLinkText";var c=document.getElementById("shareLink");c.textContent="";c.appendChild(a);var btn=document.getElementById("copyLinkBtn");btn.style.display="inline-block";btn.addEventListener("click",function(){copyToClipboard(document.getElementById("shareLinkText").textContent,"copyFeedback");});})();</script>';
                 } else {
                     echo '<p>Share this link:</p>';
                     echo '<div class="share-box"><a href="' . html($fullLink) . '" id="shareLinkText">' . html($fullLink) . '</a></div>';
-                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" onclick="copyToClipboard(document.getElementById(\'shareLinkText\').textContent,\'copyFeedback\')">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
+                    echo '<div style="margin-top:.5rem"><button class="btn btn-copy" id="copyLinkBtn">Copy Link</button><span class="copy-feedback" id="copyFeedback" role="status" aria-live="polite">Copied!</span></div>';
                 }
                 echo '<div class="form-row" style="margin-top:1rem"><label>Passcode (share separately):</label><br>';
-                echo '<span class="passcode-display">' . html($passcode) . '</span>';
-                echo '<button class="btn btn-copy" onclick="copyToClipboard(\'' . html($passcode) . '\',\'copyPassFeedback\')" style="margin-left:.5rem">Copy</button>';
+                echo '<span class="passcode-display" id="passcodeDisplay">' . html($passcode) . '</span>';
+                echo '<button class="btn btn-copy" id="copyPassBtn" style="margin-left:.5rem">Copy</button>';
                 echo '<span class="copy-feedback" id="copyPassFeedback" role="status" aria-live="polite">Copied!</span></div>';
+                echo '<script nonce="' . html(cspNonce()) . '">(function(){';
+                echo 'var lb=document.getElementById("copyLinkBtn");if(lb&&!lb._bound){lb._bound=true;lb.addEventListener("click",function(){copyToClipboard(document.getElementById("shareLinkText").textContent,"copyFeedback");});}';
+                echo 'document.getElementById("copyPassBtn").addEventListener("click",function(){copyToClipboard(' . json_encode($passcode) . ',"copyPassFeedback");});';
+                echo '})();</script>';
                 echo '<p style="font-size:.85rem;color:var(--text-muted);margin-top:1rem">This note can be viewed once. After viewing, it self-destructs. Expires in 72 hours if unused.</p>';
                 echo '</div>';
                 echo '<p style="text-align:center;margin-top:1rem"><a href="' . html(basename(__FILE__)) . '" class="btn btn-secondary">Create Another Note</a></p>';
@@ -677,7 +692,6 @@ if ($noteId !== '') {
             $json = json_encode($data, JSON_UNESCAPED_SLASHES);
             ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
             flock($fp, LOCK_UN); fclose($fp);
-            error_log(sprintf('send-private-note: bad passcode (e2e) note=%s… attempt=%d ip=%s', substr($noteId, 0, 8), $data['failed_attempts'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
             echo json_encode(['error' => 'bad_pass']); exit;
         }
         $payload = ['ciphertext' => $data['ciphertext'], 'iv' => $data['iv'], 'tag' => $data['tag']];
@@ -686,7 +700,6 @@ if ($noteId !== '') {
         ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
         flock($fp, LOCK_UN); fclose($fp);
         deleteNoteFile($path);
-        error_log(sprintf('send-private-note: note consumed (e2e) id=%s… ip=%s', substr($noteId, 0, 8), $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
         echo json_encode(['ok' => true, 'data' => $payload]);
         exit;
     }
@@ -788,7 +801,6 @@ if ($noteId !== '') {
             ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
             flock($fp, LOCK_UN);
             fclose($fp);
-            error_log(sprintf('send-private-note: bad passcode (server) note=%s… attempt=%d ip=%s', substr($noteId, 0, 8), $data['failed_attempts'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
             // Re-show prompt with error
             pageStart('Enter Passcode');
             echo '<div class="card">';
@@ -838,8 +850,6 @@ if ($noteId !== '') {
         if ((int)$data['remaining_views'] <= 0) {
             deleteNoteFile($path);
         }
-        error_log(sprintf('send-private-note: note consumed (server) id=%s… ip=%s', substr($noteId, 0, 8), $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-
         // Render the note content once
         noCacheHeaders();
         pageStart('Your Private Note');
@@ -859,12 +869,15 @@ if ($noteId !== '') {
     if (isset($data['expires_at']) && $now > (int)$data['expires_at']) { deleteNoteFile($path); pageStart('Expired'); echo '<div class="card"><p>This note has expired and is no longer available.</p></div>'; pageEnd(); exit; }
     $type = $data['type'] ?? 'server';
     if ($type === 'e2e') {
-        echo '<h3>Enter Passcode</h3>';
-        echo '<p>The decryption key must be present in the URL fragment (#...). Only your browser sees it.</p>';
-        echo '<div id="keyStatus" style="color:#b00;"></div>';
-        echo '<input type="password" id="passcode" placeholder="6-character passcode" maxlength="128"> ';
-        echo '<button id="viewBtn">Decrypt & View (consumes note)</button>';
-        echo '<pre id="output" style="white-space:pre-wrap; display:none;"></pre>';
+        pageStart('Enter Passcode');
+        echo '<div class="card">';
+        echo '<h2>Enter Passcode</h2>';
+        echo '<p style="font-size:.9rem;color:var(--text-muted)">The decryption key must be present in the URL fragment (#...). Only your browser sees it.</p>';
+        echo '<div id="keyStatus" class="error" role="alert" aria-live="assertive"></div>';
+        echo '<div class="form-row"><label for="passcode">Passcode:</label><br><input type="password" id="passcode" placeholder="6-character passcode" maxlength="128" aria-describedby="keyStatus"></div>';
+        echo '<div class="actions"><button id="viewBtn">Decrypt &amp; View</button></div>';
+        echo '</div>';
+        echo '<div class="card" id="outputCard" style="display:none"><h2>Your Private Note</h2><div class="note-content" id="output"></div><p class="consumed">This note has been consumed and cannot be viewed again.</p></div>';
         echo '<script nonce="' . html(cspNonce()) . '">
         (function(){
           var csrfToken = ' . json_encode(csrfToken()) . ';
