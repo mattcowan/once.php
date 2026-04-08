@@ -606,7 +606,6 @@ if ($method === 'POST' && isset($_POST['action']) && $_POST['action'] === 'creat
                 pageEnd();
                 exit;
             } else {
-                error_log(sprintf('send-private-note: note created id=%s… type=%s ip=%s', substr($id, 0, 8), $note['type'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
                 noCacheHeaders();
                 if ($canonicalHost !== '') {
                     $baseUrl = rtrim($canonicalHost, '/') . $_SERVER['SCRIPT_NAME'];
@@ -689,7 +688,6 @@ if ($noteId !== '') {
             $json = json_encode($data, JSON_UNESCAPED_SLASHES);
             ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
             flock($fp, LOCK_UN); fclose($fp);
-            error_log(sprintf('send-private-note: bad passcode (e2e) note=%s… attempt=%d ip=%s', substr($noteId, 0, 8), $data['failed_attempts'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
             echo json_encode(['error' => 'bad_pass']); exit;
         }
         $payload = ['ciphertext' => $data['ciphertext'], 'iv' => $data['iv'], 'tag' => $data['tag']];
@@ -698,7 +696,6 @@ if ($noteId !== '') {
         ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
         flock($fp, LOCK_UN); fclose($fp);
         deleteNoteFile($path);
-        error_log(sprintf('send-private-note: note consumed (e2e) id=%s… ip=%s', substr($noteId, 0, 8), $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
         echo json_encode(['ok' => true, 'data' => $payload]);
         exit;
     }
@@ -800,7 +797,6 @@ if ($noteId !== '') {
             ftruncate($fp, 0); rewind($fp); fwrite($fp, $json); fflush($fp);
             flock($fp, LOCK_UN);
             fclose($fp);
-            error_log(sprintf('send-private-note: bad passcode (server) note=%s… attempt=%d ip=%s', substr($noteId, 0, 8), $data['failed_attempts'], $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
             // Re-show prompt with error
             pageStart('Enter Passcode');
             echo '<div class="card">';
@@ -850,8 +846,6 @@ if ($noteId !== '') {
         if ((int)$data['remaining_views'] <= 0) {
             deleteNoteFile($path);
         }
-        error_log(sprintf('send-private-note: note consumed (server) id=%s… ip=%s', substr($noteId, 0, 8), $_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-
         // Render the note content once
         noCacheHeaders();
         pageStart('Your Private Note');
@@ -871,12 +865,15 @@ if ($noteId !== '') {
     if (isset($data['expires_at']) && $now > (int)$data['expires_at']) { deleteNoteFile($path); pageStart('Expired'); echo '<div class="card"><p>This note has expired and is no longer available.</p></div>'; pageEnd(); exit; }
     $type = $data['type'] ?? 'server';
     if ($type === 'e2e') {
-        echo '<h3>Enter Passcode</h3>';
-        echo '<p>The decryption key must be present in the URL fragment (#...). Only your browser sees it.</p>';
-        echo '<div id="keyStatus" style="color:#b00;"></div>';
-        echo '<input type="password" id="passcode" placeholder="6-character passcode" maxlength="128"> ';
-        echo '<button id="viewBtn">Decrypt & View (consumes note)</button>';
-        echo '<pre id="output" style="white-space:pre-wrap; display:none;"></pre>';
+        pageStart('Enter Passcode');
+        echo '<div class="card">';
+        echo '<h2>Enter Passcode</h2>';
+        echo '<p style="font-size:.9rem;color:var(--text-muted)">The decryption key must be present in the URL fragment (#...). Only your browser sees it.</p>';
+        echo '<div id="keyStatus" class="error" role="alert" aria-live="assertive"></div>';
+        echo '<div class="form-row"><label for="passcode">Passcode:</label><br><input type="password" id="passcode" placeholder="6-character passcode" maxlength="128" aria-describedby="keyStatus"></div>';
+        echo '<div class="actions"><button id="viewBtn">Decrypt &amp; View</button></div>';
+        echo '</div>';
+        echo '<div class="card" id="outputCard" style="display:none"><h2>Your Private Note</h2><div class="note-content" id="output"></div><p class="consumed">This note has been consumed and cannot be viewed again.</p></div>';
         echo '<script nonce="' . html(cspNonce()) . '">
         (function(){
           var csrfToken = ' . json_encode(csrfToken()) . ';
